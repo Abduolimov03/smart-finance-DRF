@@ -7,19 +7,44 @@ from shared.models import BaseModel
 from datetime import datetime, timedelta
 import uuid
 
-# Faqat kerakli konstantalar
+# Constants
+ORDINARY_USER, MANAGER, ADMIN = ('ordinary_user', 'manager', 'admin')
 VIA_EMAIL, VIA_PHONE = ('via_email', 'via_phone')
+NEW, CODE_VERIFIED, DONE, PHOTO_DONE = ('new', 'code_verified', 'done', 'photo_done')
+
+
 
 
 class CustomUser(BaseModel, AbstractUser):
+    USER_ROLE = (
+        (ORDINARY_USER, "Ordinary User"),
+        (MANAGER, "Manager"),
+        (ADMIN, "Admin"),
+    )
+
     AUTH_TYPE = (
         (VIA_EMAIL, "Via Email"),
         (VIA_PHONE, "Via Phone"),
     )
 
+    AUTH_STATUS = (
+        (NEW, "New"),
+        (CODE_VERIFIED, "Code Verified"),
+        (DONE, "Done"),
+        (PHOTO_DONE, "Photo Done"),
+    )
+
     auth_type = models.CharField(max_length=31, choices=AUTH_TYPE)
+    user_role = models.CharField(max_length=31, choices=USER_ROLE, default=ORDINARY_USER)
+    auth_status = models.CharField(max_length=31, choices=AUTH_STATUS, default=NEW)
     email = models.EmailField(unique=True, blank=True, null=True)
     phone_number = models.CharField(max_length=13, unique=True, blank=True, null=True)
+    photo = models.ImageField(
+        upload_to='users_photo',
+        blank=True,
+        null=True,
+        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png'])]
+    )
 
     def __str__(self):
         return self.username
@@ -43,7 +68,8 @@ class CustomUser(BaseModel, AbstractUser):
 
     def check_email(self):
         if self.email:
-            self.email = self.email.lower()
+            normalize_email = self.email.lower()
+            self.email = normalize_email
 
     def check_pass(self):
         if not self.password:
@@ -61,6 +87,8 @@ class CustomUser(BaseModel, AbstractUser):
             'access_token': str(token.access_token)
         }
 
+
+
     def save(self, *args, **kwargs):
         self.clean()
         super(CustomUser, self).save(*args, **kwargs)
@@ -71,10 +99,8 @@ class CustomUser(BaseModel, AbstractUser):
         self.check_pass()
         self.hashing_pass()
 
-
 EXPIRATION_PHONE = 2
 EXPIRATION_EMAIL = 5
-
 
 class CodeVerified(BaseModel):
     AUTH_TYPE = (

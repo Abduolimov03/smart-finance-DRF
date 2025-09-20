@@ -1,5 +1,4 @@
 from datetime import datetime
-
 from django.contrib.auth import authenticate
 from django.core.mail import send_mail
 from rest_framework import status
@@ -7,9 +6,9 @@ from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from django.shortcuts import render
 from shared.utility import check_email_or_phone_number
-from .serializers import SignUpSerializer, ChangeInfoUserSerializer, LoginSerializer, \
+from .serializers import SignUpSerializer, ChangeInfoUserSerializer, CreatePhotoUserSerializer, LoginSerializer, \
     LogOutSerializer, ForgotPasswordSerializer, ResetPasswordSerializer, UpdatePasswordSerializer
-from .models import CustomUser, VIA_EMAIL, VIA_PHONE
+from .models import CustomUser, CODE_VERIFIED, NEW, VIA_EMAIL, VIA_PHONE
 from rest_framework.generics import ListCreateAPIView, UpdateAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
@@ -35,8 +34,9 @@ class VerifyCodeApiView(APIView):
 
         self.check_verify(user, code)
         data = {
-            'success': True,
+            'succes': True,
             'code_status': user.verify_codes.filter(code=code).first().code_status,
+            "auth_status": user.auth_status,
             'access_token': user.token()['access_token'],
             'refresh_token': user.token()['refresh_token']
         }
@@ -44,21 +44,20 @@ class VerifyCodeApiView(APIView):
 
     @staticmethod
     def check_verify(user, code):
-        verify = user.verify_codes.filter(
-            code=code,
-            code_status=False,
-            expiration_time__gte=datetime.now()
-        )
+        verify = user.verify_codes.filter(code=code, code_status=False, expiration_time__gte=datetime.now())
         if not verify.exists():
             data = {
-                'success': False,
+                'succes': False,
                 'msg': 'Kodingiz eski yoki xato'
             }
             raise ValidationError(data)
         else:
             verify.update(code_status=True)
-        return True
 
+        if user.auth_status == NEW:
+            user.auth_status = CODE_VERIFIED
+            user.save()
+        return True
 
 
 class GetNewCodeVerify(APIView):
@@ -139,11 +138,24 @@ class ChangeInfoUserApi(UpdateAPIView):
         }
         return Response(data)
 
+class CreatePhotoUserApi(UpdateAPIView):
+    serializer_class = CreatePhotoUserSerializer
+    http_method_names = ['patch']
 
+    def get_object(self):
+        return self.request.user
 
-class LoginApi(TokenObtainPairView):
-    serializer_class = LoginSerializer
-    permission_classes = [AllowAny, ]
+    def partial_update(self, request, *args, **kwargs):
+        response = super().partial_update(request, *args, **kwargs)
+        user = request.user
+        data = {
+            'msg': "Rasm yaratildi",
+            'auth_status': user.auth_status,
+            'refresh_token': user.token()['refresh_token'],
+            'access_token': user.token()['access_token'],
+            'status': status.HTTP_201_CREATED
+        }
+        return Response(data)
 
 
 class LogOutApi(APIView):
@@ -151,14 +163,24 @@ class LogOutApi(APIView):
         serializer = LogOutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            token = RefreshToken(serializer.data('refresh'))
+            token = RefreshToken(serializer.validated_data['refresh'])
             token.blacklist()
-            return Response({'msg':'Siz dasturdan chiqdingiz', 'status':status.HTTP_200_OK})
+            return Response({'msg': 'Siz dasturdan chiqdingiz', 'status': status.HTTP_200_OK})
         except Exception as e:
-            raise ValidationError(e)
+            raise ValidationError({'msg': str(e)})
+
+
+
+
+class LoginApi(TokenObtainPairView):
+    serializer_class = LoginSerializer
+    permission_classes = [AllowAny, ]
+
+
 
 class ForgotPasswordApi(APIView):
     permission_classes = [AllowAny, ]
+
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -176,32 +198,35 @@ class ForgotPasswordApi(APIView):
             raise ValidationError('Siz notogi email/phone kiritdingiz')
 
         data = {
-            'msg':'Kod yuborildi',
-            'status':status.HTTP_200_OK,
-            'access':user.token()['access_token'],
-            'refresh_token':user.token()['refresh_token']
+            'msg': 'Kod yuborildi',
+            'status': status.HTTP_200_OK,
+            'access': user.token()['access_token'],
+            'refresh_token': user.token()['refresh_token']
 
         }
         return Response(data)
 
+
 class ResetPasswordApi(APIView):
     permission_classes = [IsAuthenticated, ]
+
     def put(self, request):
         user = request.user
         serializer = ResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         code = serializer.validated_data.get('code')
-        verify = user.verify_codes.filter(code=code, code_status=False, expiration_time__gte=datetime.now( ))
+        verify = user.verify_codes.filter(code=code, code_status=False, expiration_time__gte=datetime.now())
         if not verify.exists():
             raise ValidationError('Code amal qilsh muddati tugagan')
         user.set_password(serializer.validated_data.get('password'))
         user.save()
         data = {
-            'msg':'Parol mavaffaqiyatli ozgartirildi',
-            'status':status.HTTP_200_OK
+            'msg': 'Parol mavaffaqiyatli ozgartirildi',
+            'status': status.HTTP_200_OK
         }
         return Response(data)
+
 
 class UpdatePasswordApi(APIView):
     permission_classes = [IsAuthenticated, ]
@@ -210,7 +235,6 @@ class UpdatePasswordApi(APIView):
         serializer = UpdatePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = request.user
-
 
         # confirm_user = authenticate(username=user.username, password=serializer.validated_data.get('old_password'))
 
