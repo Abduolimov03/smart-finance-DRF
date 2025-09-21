@@ -40,7 +40,7 @@ class CardDetailAPIView(APIView):
     def delete(self, request, pk):
         card = self.get_object(pk)
         card.delete()
-        return Response({"msg": "Card o‘chirildi"}, status=status.HTTP_204_NO_CONTENT)
+        return Response({"msg": "Card ochirildi"}, status=status.HTTP_204_NO_CONTENT)
 
 
 class IncomeAPIView(APIView):
@@ -121,7 +121,7 @@ class IncomeDetailAPIView(APIView):
             income.card.balance -= income.amount
             income.card.save()
         income.delete()
-        return Response({"msg": "Income o‘chirildi"}, status=status.HTTP_204_NO_CONTENT)
+        return Response({"msg": "Income ochirildi"}, status=status.HTTP_204_NO_CONTENT)
 
 
 class ExpenseAPIView(APIView):
@@ -142,7 +142,7 @@ class ExpenseAPIView(APIView):
 
         if expense.source_type == "card" and expense.card:
             if expense.card.balance < expense.amount:
-                raise serializers.ValidationError("Kartada mablag' yetarli emas")
+                raise serializers.ValidationError("Kartada mablag yetarli emas")
             expense.card.balance -= expense.amount
             expense.card.save()
 
@@ -169,7 +169,7 @@ class ExpenseDetailAPIView(APIView):
         serializer = ExpenseSerializer(expense_obj, data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # eski summani qayta tiklash
+
         if expense_obj.source_type == "card" and expense_obj.card:
             expense_obj.card.balance += expense_obj.amount
             expense_obj.card.save()
@@ -190,7 +190,6 @@ class ExpenseDetailAPIView(APIView):
         serializer = ExpenseSerializer(expense_obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
 
-        # eski summani qayta tiklash
         if expense_obj.source_type == "card" and expense_obj.card:
             expense_obj.card.balance += expense_obj.amount
             expense_obj.card.save()
