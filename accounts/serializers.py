@@ -1,22 +1,22 @@
+
 from django.contrib.auth import authenticate
 from django.core.validators import FileExtensionValidator
 from django.db.models import Q
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.serializers import TokenObtainSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
 from shared.utility import check_email_or_phone_number, valid_username
-from .models import CustomUser, CodeVerified, VIA_EMAIL, VIA_PHONE, CODE_VERIFIED, DONE, PHOTO_DONE, NEW
+from .models import CustomUser, CodeVerified, VIA_EMAIL, VIA_PHONE
 from django.core.mail import send_mail
 from django.conf import settings
-from rest_framework_simplejwt.tokens import RefreshToken
+# import requests
 # from shared.sms_service import send_phone
-
 
 
 class SignUpSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True)
     auth_type = serializers.CharField(required=False, read_only=True)
-    auth_status = serializers.CharField(required=False, read_only=True)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -24,10 +24,10 @@ class SignUpSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        fields = ['id', 'auth_type', 'auth_status']
+        fields = ['id', 'auth_type']
 
     def create(self, validated_data):
-        user = super(SignUpSerializer, self).create(validated_data)
+        user = super().create(validated_data)
         if user.auth_type == VIA_EMAIL:
             code = user.create_verify_code(VIA_EMAIL)
             send_mail(
@@ -74,14 +74,14 @@ class SignUpSerializer(serializers.ModelSerializer):
             }
         else:
             data = {
-                'succes' : False,
-                'msg' : 'siz telefon raqam yoki email kiritishingiz kerak'
+                'success' : False,
+                'msg' : 'Siz telefon raqam yoki email kiritishingiz kerak'
             }
             raise ValidationError(data)
         return data
 
     def to_representation(self, instance):
-        data = super(SignUpSerializer, self).to_representation(instance)
+        data = super().to_representation(instance)
         data.update(instance.token())
         return data
 
@@ -95,17 +95,12 @@ class ChangeInfoUserSerializer(serializers.Serializer):
 
     def validate(self, data):
         if data.get('password') != data.get('password_confirm'):
-            raise ValidationError('parollar mos emas')
-
-
+            raise ValidationError('Parollar mos emas')
 
         if not valid_username(data.get("username")):
-            raise ValidationError("Username mukamal emas")
-
+            raise ValidationError("Username mukammal emas")
 
         return data
-
-
 
     def update(self, instance, validated_data):
         instance.first_name = validated_data.get('first_name', instance.first_name)
@@ -115,16 +110,15 @@ class ChangeInfoUserSerializer(serializers.Serializer):
         if instance.password:
             instance.set_password(validated_data.get('password'))
 
-        if instance.auth_status == CODE_VERIFIED:
-            instance.auth_status = DONE
         instance.save()
         return instance
+
 
 class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(max_length=124)
 
     def __init__(self, *args, **kwargs):
-        super(LoginSerializer, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.fields['user_input'] = serializers.CharField(required=True)
         self.fields['username'] = serializers.CharField(required=False, read_only=True)
 
@@ -139,24 +133,26 @@ class LoginSerializer(serializers.Serializer):
             user = CustomUser.objects.filter(phone_number__iexact=user_input).first()
             username = user.username
         else:
-            raise ValidationError('Siz emael/usename/phone xato kiriting')
+            raise ValidationError('Siz email/username/phone xato kiriting')
 
         user = authenticate(username=username, password=data.get('password'))
         if user is None:
-            raise ValidationError('Siz notogri login/parol kiritdingiz')
+            raise ValidationError('Siz noto‘g‘ri login/parol kiritdingiz')
         self.user = user
 
     def validate(self, data):
         self.auth_validate(data)
         refresh_token = RefreshToken.for_user(self.user)
-        data = {
+        return {
             'msg':'Login qildingiz',
             'refresh_token': str(refresh_token),
             'access_token': str(refresh_token.access_token),
             'status': status.HTTP_200_OK
-
         }
-        return data
+
+
+class LogOutSerializer(serializers.Serializer):
+    refresh = serializers.CharField(max_length=540)
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
@@ -166,47 +162,14 @@ class ForgotPasswordSerializer(serializers.Serializer):
         user_input = data.get('phone_email')
         user = CustomUser.objects.filter(Q(email__iexact=user_input) | Q(phone_number=user_input)).first()
         if user is None:
-            raise ValidationError('Siz notogri email yoki telefon raqam kiritdingiz ')
-
-        if user.auth_status in [NEW, CODE_VERIFIED]:
-            raise ValidationError('siz hali toliq royxatdan otmadingiz')
-
-
+            raise ValidationError('Siz noto‘g‘ri email yoki telefon raqam kiritdingiz')
         data['user'] = user
-
         return data
 
     def validate(self, data):
         self.auth_validate(data)
-        super(ForgotPasswordSerializer, self).validate(data)
+        super().validate(data)
         return data
-
-class CreatePhotoUserSerializer(serializers.ModelSerializer):
-    photo = serializers.ImageField(
-        required=True,
-        validators=[FileExtensionValidator(allowed_extensions=['jpg', 'jpeg', 'png'])]
-    )
-
-    class Meta:
-        model = CustomUser
-        fields = ['photo']
-
-    def update(self, instance, validated_data):
-        photo = validated_data.get("photo")
-        if photo and instance.auth_status in [DONE, PHOTO_DONE]:
-            instance.photo = photo
-            instance.auth_status = PHOTO_DONE
-            instance.save()
-        else:
-            raise ValidationError({
-                'msg': 'Siz hali to‘liq ro‘yxatdan o‘tmadingiz',
-                'status': status.HTTP_400_BAD_REQUEST
-            })
-        return instance
-
-
-class LogOutSerializer(serializers.Serializer):
-    refresh = serializers.CharField(max_length=540)
 
 
 class ResetPasswordSerializer(serializers.Serializer):
@@ -215,21 +178,27 @@ class ResetPasswordSerializer(serializers.Serializer):
     confirm_password = serializers.CharField(required=True)
 
     def validate(self, attrs):
-        password = attrs.get('password')
-        confirm_password = attrs.get('confirm_password')
-        if password != confirm_password:
+        if attrs.get('password') != attrs.get('confirm_password'):
             raise ValidationError('Parollar mos emas')
         return attrs
 
+    def update(self, instance, validated_data):
+        instance.set_password(validated_data.pop('password'))
+        super().update(validated_data)
+
 
 class UpdatePasswordSerializer(serializers.Serializer):
-    old_pass = serializers.CharField(required=True)
+    old_pass  = serializers.CharField(required=True)
     new_pass = serializers.CharField(required=True)
     confirm_new_pass = serializers.CharField(required=True)
 
     def validate(self, data):
         if data.get('new_pass') == data.get('old_pass'):
-            raise ValidationError('Yangi va eski parollar bir xil bo‘lmasligi kerak')
-        if data.get('new_pass') != data.get('confirm_new_pass'):
+            raise ValidationError('Yangi va eski parollar bir-xil bo‘lmasligi kerak')
+        if data.get('confirm_new_pass') != data.get('new_pass'):
             raise ValidationError('Yangi parollar mos emas')
         return data
+
+    def update(self, instance, validated_data):
+        instance.set_password(validated_data.pop('new_pass'))
+        super().update(validated_data)

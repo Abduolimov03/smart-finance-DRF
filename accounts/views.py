@@ -4,11 +4,10 @@ from django.core.mail import send_mail
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
-from django.shortcuts import render
 from shared.utility import check_email_or_phone_number
-from .serializers import SignUpSerializer, ChangeInfoUserSerializer, CreatePhotoUserSerializer, LoginSerializer, \
-    LogOutSerializer, ForgotPasswordSerializer, ResetPasswordSerializer, UpdatePasswordSerializer
-from .models import CustomUser, CODE_VERIFIED, NEW, VIA_EMAIL, VIA_PHONE
+from .serializers import SignUpSerializer, ChangeInfoUserSerializer, LoginSerializer, LogOutSerializer, \
+    ResetPasswordSerializer, UpdatePasswordSerializer, ForgotPasswordSerializer
+from .models import CustomUser, VIA_EMAIL, VIA_PHONE
 from rest_framework.generics import ListCreateAPIView, UpdateAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
@@ -16,13 +15,10 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 
-# Create your views here.
-
-
 class SignUpView(ListCreateAPIView):
     queryset = CustomUser.objects.all()
     serializer_class = SignUpSerializer
-    permission_classes = [AllowAny, ]
+    permission_classes = [AllowAny]
 
 
 class VerifyCodeApiView(APIView):
@@ -34,9 +30,8 @@ class VerifyCodeApiView(APIView):
 
         self.check_verify(user, code)
         data = {
-            'succes': True,
+            'success': True,
             'code_status': user.verify_codes.filter(code=code).first().code_status,
-            "auth_status": user.auth_status,
             'access_token': user.token()['access_token'],
             'refresh_token': user.token()['refresh_token']
         }
@@ -47,20 +42,18 @@ class VerifyCodeApiView(APIView):
         verify = user.verify_codes.filter(code=code, code_status=False, expiration_time__gte=datetime.now())
         if not verify.exists():
             data = {
-                'succes': False,
+                'success': False,
                 'msg': 'Kodingiz eski yoki xato'
             }
             raise ValidationError(data)
         else:
             verify.update(code_status=True)
-
-        if user.auth_status == NEW:
-            user.auth_status = CODE_VERIFIED
-            user.save()
         return True
 
 
 class GetNewCodeVerify(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, *args, **kwargs):
         user = self.request.user
 
@@ -81,7 +74,6 @@ class GetNewCodeVerify(APIView):
             'msg': "Kod email yoki phone ga yuborildi",
             'access_token': user.token()['access_token'],
             'refresh_token': user.token()['refresh_token']
-
         }
         return Response(data)
 
@@ -90,7 +82,7 @@ class GetNewCodeVerify(APIView):
         verify = user.verify_codes.filter(expiration_time__gte=datetime.now(), code_status=False)
         if verify.exists():
             data = {
-                'msg': 'Sizda active code bor shundan foydalaning yoki 2 daqiqadan song yangi kod oling',
+                'msg': 'Sizda active code bor, shundan foydalaning yoki 2 daqiqadan so‘ng yangi kod oling',
                 'status': status.HTTP_400_BAD_REQUEST
             }
             raise ValidationError(data)
@@ -98,7 +90,7 @@ class GetNewCodeVerify(APIView):
 
 
 class TokenRefreshApi(APIView):
-    permission_classes = [AllowAny, ]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         data = request.data
@@ -123,7 +115,7 @@ class ChangeInfoUserApi(UpdateAPIView):
         return self.request.user
 
     def update(self, request, *args, **kwargs):
-        super(ChangeInfoUserApi, self).update(request, *args, **kwargs)
+        super().update(request, *args, **kwargs)
         data = {
             'msg': "Malumotlar yangilandi",
             'status': status.HTTP_200_OK
@@ -131,31 +123,17 @@ class ChangeInfoUserApi(UpdateAPIView):
         return Response(data)
 
     def partial_update(self, request, *args, **kwargs):
-        super(ChangeInfoUserApi, self).partial_update(request, *args, **kwargs)
+        super().partial_update(request, *args, **kwargs)
         data = {
             'msg': "Malumotlar yangilandi",
             'status': status.HTTP_200_OK
         }
         return Response(data)
 
-class CreatePhotoUserApi(UpdateAPIView):
-    serializer_class = CreatePhotoUserSerializer
-    http_method_names = ['patch']
 
-    def get_object(self):
-        return self.request.user
-
-    def partial_update(self, request, *args, **kwargs):
-        response = super().partial_update(request, *args, **kwargs)
-        user = request.user
-        data = {
-            'msg': "Rasm yaratildi",
-            'auth_status': user.auth_status,
-            'refresh_token': user.token()['refresh_token'],
-            'access_token': user.token()['access_token'],
-            'status': status.HTTP_201_CREATED
-        }
-        return Response(data)
+class LoginApi(TokenObtainPairView):
+    serializer_class = LoginSerializer
+    permission_classes = [AllowAny]
 
 
 class LogOutApi(APIView):
@@ -163,23 +141,15 @@ class LogOutApi(APIView):
         serializer = LogOutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            token = RefreshToken(serializer.validated_data['refresh'])
+            token = RefreshToken(serializer.data['refresh'])
             token.blacklist()
             return Response({'msg': 'Siz dasturdan chiqdingiz', 'status': status.HTTP_200_OK})
         except Exception as e:
-            raise ValidationError({'msg': str(e)})
-
-
-
-
-class LoginApi(TokenObtainPairView):
-    serializer_class = LoginSerializer
-    permission_classes = [AllowAny, ]
-
+            raise ValidationError(e)
 
 
 class ForgotPasswordApi(APIView):
-    permission_classes = [AllowAny, ]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = ForgotPasswordSerializer(data=request.data)
@@ -191,52 +161,50 @@ class ForgotPasswordApi(APIView):
         if check_email_or_phone_number(phone_email) == 'email':
             code = user.create_verify_code(VIA_EMAIL)
             print(code)
-        elif check_email_or_phone_number(phone_email) == 'phone':
+        elif check_email_or_phone_number(phone_email) == 'phone_number':
             code = user.create_verify_code(VIA_PHONE)
             print(code)
         else:
-            raise ValidationError('Siz notogi email/phone kiritdingiz')
+            raise ValidationError('Siz noto‘g‘ri email/phone kiritdingiz')
 
         data = {
             'msg': 'Kod yuborildi',
             'status': status.HTTP_200_OK,
             'access': user.token()['access_token'],
             'refresh_token': user.token()['refresh_token']
-
         }
         return Response(data)
 
 
 class ResetPasswordApi(APIView):
-    permission_classes = [IsAuthenticated, ]
+    permission_classes = [IsAuthenticated]
 
     def put(self, request):
-        user = request.user
+        user = self.request.user
         serializer = ResetPasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         code = serializer.validated_data.get('code')
         verify = user.verify_codes.filter(code=code, code_status=False, expiration_time__gte=datetime.now())
         if not verify.exists():
-            raise ValidationError('Code amal qilsh muddati tugagan')
+            raise ValidationError('Code amal qilish muddati tugagan')
+
         user.set_password(serializer.validated_data.get('password'))
         user.save()
         data = {
-            'msg': 'Parol mavaffaqiyatli ozgartirildi',
+            'msg': 'Parol muvaffaqiyatli o‘zgartirildi',
             'status': status.HTTP_200_OK
         }
         return Response(data)
 
 
 class UpdatePasswordApi(APIView):
-    permission_classes = [IsAuthenticated, ]
+    permission_classes = [IsAuthenticated]
 
     def put(self, request):
         serializer = UpdatePasswordSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = request.user
-
-        # confirm_user = authenticate(username=user.username, password=serializer.validated_data.get('old_password'))
+        user = self.request.user
 
         if not user.check_password(serializer.validated_data.get('old_pass')):
             raise ValidationError('Eski parol noto‘g‘ri!')
@@ -248,16 +216,3 @@ class UpdatePasswordApi(APIView):
             'msg': 'Parol o‘zgartirildi',
             'status': status.HTTP_200_OK
         })
-
-        # if not confirm_user:
-        #     raise ValidationError('eski parol notogri')
-        #
-        # user.set_password(serializer.validated_data.get('new_pass'))
-        # user.save()
-        #
-        # data = {
-        #     'msg':'Parol ozgartirildi',
-        #     'status':status.HTTP_200_OK
-        # }
-        # return Response(data)
-
