@@ -1,4 +1,6 @@
 # Kirim-Chiqim Tizimi (Income-Expense Management System)
+Postman 
+https://documenter.getpostman.com/view/47115929/2sB3HtFH1N
 
 ## Loyihaning maqsadi
 Bu loyiha foydalanuvchining kirim va chiqimlarini kuzatish, kategoriyalar bo‘yicha saralash, balansni ko‘rish va kartalar orqali pul boshqarishni osonlashtiradi. Loyihada Django va Django REST Framework ishlatilgan.
